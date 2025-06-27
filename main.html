@@ -1,0 +1,159 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>전주대학교 3D 지도 + 미사일 시뮬레이션</title>
+    <style>
+        body { margin: 0; padding: 0; font-family: 'Arial', sans-serif; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); overflow: hidden; }
+        #container { width: 100vw; height: 100vh; position: relative; }
+        #loading { position: absolute; top:50%; left:50%; transform:translate(-50%,-50%); color:white; font-size:1.2em; z-index:1001; }
+        #info-panel { position:absolute; top:20px; left:20px; background:rgba(255,255,255,0.95); padding:20px; border-radius:15px; box-shadow:0 8px 32px rgba(0,0,0,0.1); backdrop-filter:blur(10px); z-index:1000; max-width:300px; }
+        #info-panel h2 { margin:0 0 15px; font-size:1.5em; color:#333; }
+        .info-item { margin:10px 0; padding:8px 0; border-bottom:1px solid #eee; }
+        .info-item:last-child { border-bottom:none; }
+        .info-label { font-weight:bold; color:#555; }
+        .info-value { margin-left:10px; color:#333; }
+        #controls { position:absolute; top:20px; right:20px; background:rgba(255,255,255,0.95); padding:15px; border-radius:10px; box-shadow:0 8px 32px rgba(0,0,0,0.1); backdrop-filter:blur(10px); z-index:1000; }
+        .control-group { margin:10px 0; }
+        .control-group label { display:block; margin-bottom:5px; font-weight:bold; color:#555; }
+        .control-group input { width:100%; padding:5px; border:1px solid #ddd; border-radius:5px; }
+        #terrain { position:absolute; bottom:0; left:0; width:100%; height:60%; background:linear-gradient(to top, #8B4513,#A0522D,#CD853F); transform-style:preserve-3d; transform:rotateX(60deg) rotateZ(0deg); }
+        /* 산, 건물, 도로, 나무, 랜드마크 스타일은 생략: 기존 코드 그대로 사용 */
+        /* ... */
+        /* Three.js 시뮬레이션 레이어 */
+        #missile-sim { position:absolute; top:0; right:0; width:50vw; height:50vh; z-index:200; }
+    </style>
+    <!-- Three.js 라이브러리 -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r152/three.min.js"></script>
+</head>
+<body>
+    <div id="container">
+        <div id="loading">3D 지도를 로딩 중...</div>
+        <div id="info-panel">
+            <h2>전주대학교 3D 지도</h2>
+            <div class="info-item"><span class="info-label">위도:</span><span class="info-value">35.8242° N</span></div>
+            <div class="info-item"><span class="info-label">경도:</span><span class="info-value">127.1480° E</span></div>
+            <div class="info-item"><span class="info-label">고도:</span><span class="info-value">약 50m</span></div>
+            <div class="info-item"><span class="info-label">주소:</span><span class="info-value">전북 전주시 완산구 천잠로 303</span></div>
+            <div class="info-item"><span class="info-label">특징:</span><span class="info-value">완산구 천잠동에 위치한 사립대학교</span></div>
+        </div>
+        <div id="controls">
+            <div class="control-group"><label for="rotation-speed">회전 속도:</label><input type="range" id="rotation-speed" min="0" max="2" step="0.1" value="0.5"></div>
+            <div class="control-group"><label for="zoom-level">줌 레벨:</label><input type="range" id="zoom-level" min="0.5" max="2" step="0.1" value="1"></div>
+            <div class="control-group"><label for="tilt-angle">기울기:</label><input type="range" id="tilt-angle" min="30" max="80" step="5" value="60"></div>
+        </div>
+        <div id="terrain">
+            <!-- 기존 산, 건물, 도로, 물, 나무, 랜드마크 요소들 -->
+        </div>
+        <!-- 미사일 시뮬레이션 캔버스 -->
+        <div id="missile-sim"></div>
+    </div>
+
+    <script>
+    class MissileSimulation {
+      constructor(containerId) {
+        this.container = document.getElementById(containerId);
+        this.initScene();
+        this.computeTrajectories();
+        this.animate();
+      }
+
+      initScene() {
+        const W = this.container.clientWidth, H = this.container.clientHeight;
+        this.scene = new THREE.Scene();
+        this.camera = new THREE.PerspectiveCamera(45, W/H, 1, 1000);
+        this.camera.position.set(100,100,200);
+        this.renderer = new THREE.WebGLRenderer({ antialias:true, alpha:true });
+        this.renderer.setSize(W,H);
+        this.container.appendChild(this.renderer.domElement);
+
+        const light = new THREE.DirectionalLight(0xffffff,1);
+        light.position.set(50,100,100);
+        this.scene.add(light);
+
+        // Base A (기지) 표시
+        const baseGeom = new THREE.SphereGeometry(3,16,16);
+        const baseMat = new THREE.MeshStandardMaterial({ color:0x0000ff });
+        const base = new THREE.Mesh(baseGeom, baseMat);
+        base.position.set(50,20,0);
+        this.scene.add(base);
+        // 라벨
+        const loader = new THREE.FontLoader();
+        loader.load('https://threejs.org/examples/fonts/helvetiker_regular.typeface.json', font => {
+          const textGeo = new THREE.TextGeometry('Base A', { font, size:5, height:1 });
+          const textMat = new THREE.MeshBasicMaterial({ color:0x0000ff });
+          const label = new THREE.Mesh(textGeo, textMat);
+          label.position.set(50,25,0);
+          this.scene.add(label);
+        });
+      }
+
+      computeTrajectories() {
+        const vI = 120;
+        const SA = new THREE.Vector3(50,20,0);
+        const PH1 = t => new THREE.Vector3(250-20*t,300-25*t,400-4.9*t*t);
+
+        let tImpact=0, minErr=Infinity;
+        const groundT = Math.sqrt(400/4.9);
+        for(let t=0; t<=groundT; t+=0.01) {
+          const P = PH1(t);
+          const err = P.distanceTo(SA)-vI*t;
+          if(Math.abs(err)<minErr) { minErr=Math.abs(err); tImpact=t; }
+        }
+        const Pimp = PH1(tImpact);
+        const u = Pimp.clone().sub(SA).normalize();
+
+        this.enemyPoints = [];
+        this.intPoints = [];
+        const steps = 200;
+        for(let i=0;i<=steps;i++){
+          const tt = tImpact*i/steps;
+          this.enemyPoints.push(PH1(tt));
+          this.intPoints.push(SA.clone().add(u.clone().multiplyScalar(vI*tt)));
+        }
+
+        const geomE = new THREE.BufferGeometry().setFromPoints(this.enemyPoints);
+        const geomI = new THREE.BufferGeometry().setFromPoints(this.intPoints);
+        this.enemyLine = new THREE.Line(geomE, new THREE.LineBasicMaterial({ color:0xff6600 }));
+        this.intLine   = new THREE.Line(geomI, new THREE.LineBasicMaterial({ color:0x00ffff }));
+        this.scene.add(this.enemyLine, this.intLine);
+
+        const dotGeom = new THREE.SphereGeometry(2,8,8);
+        this.enemyDot = new THREE.Mesh(dotGeom, new THREE.MeshStandardMaterial({ color:0xff0000 }));
+        this.intDot   = new THREE.Mesh(dotGeom, new THREE.MeshStandardMaterial({ color:0x0000ff }));
+        this.scene.add(this.enemyDot, this.intDot);
+
+        this.frame = 0; this.maxFrame = steps;
+      }
+
+      animate() {
+        requestAnimationFrame(()=>this.animate());
+        this.scene.rotation.y += 0.002;
+
+        const eP = this.enemyPoints[this.frame];
+        const iP = this.intPoints[this.frame];
+        this.enemyDot.position.copy(eP);
+        this.intDot.position.copy(iP);
+        if(this.frame < this.maxFrame) this.frame++;
+
+        this.renderer.render(this.scene, this.camera);
+      }
+    }
+
+    document.addEventListener('DOMContentLoaded', ()=>{
+      // 3D 지형 로딩 완료 처리
+      setTimeout(()=>document.getElementById('loading').style.display='none', 2000);
+      // 컨트롤 이벤트 연결 (기존)
+      document.getElementById('rotation-speed').addEventListener('input', e=> window.jeonjuMap.rotationSpeed = parseFloat(e.target.value));
+      document.getElementById('zoom-level').addEventListener('input', e=> window.jeonjuMap.zoomLevel = parseFloat(e.target.value));
+      document.getElementById('tilt-angle').addEventListener('input', e=> window.jeonjuMap.tiltAngle = parseInt(e.target.value));
+
+      // 지형 애니메이션 초기화 (기존 JeonjuUniversity3D)
+      window.jeonjuMap = new JeonjuUniversity3D();
+      // 미사일 시뮬레이션 초기화
+      new MissileSimulation('missile-sim');
+    });
+    </script>
+</body>
+</html>
