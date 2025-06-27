@@ -8,8 +8,16 @@
     body { margin:0; padding:0; background:linear-gradient(135deg,#667eea,#764ba2); font-family:Arial,sans-serif; overflow:hidden; }
     #container { position:relative; width:100vw; height:100vh; }
     #loading { position:absolute; top:50%; left:50%; transform:translate(-50%,-50%); color:#fff; font-size:1.2em; z-index:10; }
-    #info-panel { position:absolute; top:20px; left:20px; width:280px; padding:15px; background:rgba(255,255,255,0.9); border-radius:12px; }
-    #controls   { position:absolute; top:20px; right:20px; width:200px; padding:15px; background:rgba(255,255,255,0.9); border-radius:12px; }
+    #info-panel {
+      position:absolute; top:20px; left:20px;
+      width:280px; padding:15px;
+      background:rgba(255,255,255,0.9); border-radius:12px;
+    }
+    #controls {
+      position:absolute; top:20px; right:20px;
+      width:200px; padding:15px;
+      background:rgba(255,255,255,0.9); border-radius:12px;
+    }
     .control-group { margin-bottom:10px; }
     .control-group label { font-weight:bold; display:block; margin-bottom:4px; }
     .control-group input { width:100%; }
@@ -21,10 +29,17 @@
 <body>
   <div id="container">
     <div id="loading">3D 지도를 로딩 중...</div>
+
     <div id="info-panel">
       <h2>전주대학교 3D 지도</h2>
-      <p>위도: 35.8242° N<br>경도: 127.1480° E<br>고도: 약 50 m<br>주소: 전북 전주시 완산구 천잠로 303</p>
+      <p>
+        위도: 35.8242° N<br>
+        경도: 127.1480° E<br>
+        고도: 약 50 m<br>
+        주소: 전북 전주시 완산구 천잠로 303
+      </p>
     </div>
+
     <div id="controls">
       <div class="control-group">
         <label for="rotation-speed">회전 속도</label>
@@ -39,46 +54,64 @@
         <input type="range" id="tilt-angle" min="30" max="80" step="5" value="60">
       </div>
     </div>
+
     <div id="terrain"></div>
     <div id="missile-sim"></div>
   </div>
 
   <script>
-    // 1) 간단한 3D 지형 클래스 정의
+    // --- 1) 전주대 3D 지형 렌더러 ---
     class JeonjuUniversity3D {
       constructor(containerId) {
         this.container = document.getElementById(containerId);
         const W = this.container.clientWidth, H = this.container.clientHeight;
+
+        // 씬/카메라/렌더러
         this.scene = new THREE.Scene();
         this.camera = new THREE.PerspectiveCamera(45, W/H, 1, 1000);
-        this.camera.position.set(0, 80, 200);
-        this.renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
+        this.renderer = new THREE.WebGLRenderer({ antialias:true, alpha:true });
         this.renderer.setSize(W, H);
         this.container.appendChild(this.renderer.domElement);
 
-        const light = new THREE.DirectionalLight(0xffffff, 1);
-        light.position.set(100, 200, 100);
+        // 조명
+        const light = new THREE.DirectionalLight(0xffffff,1);
+        light.position.set(100,200,100);
         this.scene.add(light);
 
-        // 랜덤 높이의 평면 지형
-        const geom = new THREE.PlaneGeometry(400, 400, 80, 80);
+        // 랜덤 높이 지형 생성
+        const geom = new THREE.PlaneGeometry(400,400,80,80);
         geom.rotateX(-Math.PI/2);
         const pos = geom.attributes.position;
         for (let i=0; i<pos.count; i++) {
           pos.setY(i, Math.random()*10);
         }
         geom.computeVertexNormals();
-        const mat = new THREE.MeshLambertMaterial({ color: 0x8B4513 });
+        const mat = new THREE.MeshLambertMaterial({ color:0x8B4513 });
         this.scene.add(new THREE.Mesh(geom, mat));
 
-        // 컨트롤 기본값
+        // 슬라이더 초기값
+        this.baseRadius    = 250;  // 카메라 반지름
         this.rotationSpeed = parseFloat(document.getElementById('rotation-speed').value);
-        this.camera.zoom    = parseFloat(document.getElementById('zoom-level').value);
-        this.camera.updateProjectionMatrix();
-        this.camera.rotation.x = parseInt(document.getElementById('tilt-angle').value) * Math.PI/180;
+        this.zoomLevel     = parseFloat(document.getElementById('zoom-level').value);
+        this.tiltAngle     = parseInt(document.getElementById('tilt-angle').value) * Math.PI/180;
 
+        // 초기 카메라 위치 세팅
+        this.updateCameraPosition();
+
+        // 애니메이션 시작
         this.animate();
       }
+
+      updateCameraPosition() {
+        // 반지름 × 줌
+        const r = this.baseRadius * this.zoomLevel;
+        const y = r * Math.sin(this.tiltAngle);
+        const z = r * Math.cos(this.tiltAngle);
+        this.camera.position.set(0, y, z);
+        this.camera.lookAt(0, 0, 0);
+        this.camera.updateProjectionMatrix();
+      }
+
       animate() {
         requestAnimationFrame(() => this.animate());
         this.scene.rotation.y += this.rotationSpeed * 0.005;
@@ -86,7 +119,7 @@
       }
     }
 
-    // 2) 미사일 시뮬레이션 클래스 (기존 코드 유지)
+    // --- 2) 미사일 궤적 시뮬레이션 ---
     class MissileSimulation {
       constructor(containerId) {
         this.container = document.getElementById(containerId);
@@ -95,14 +128,14 @@
         this.camera = new THREE.PerspectiveCamera(45, W/H, 1, 1000);
         this.camera.position.set(100,100,200);
         this.renderer = new THREE.WebGLRenderer({ antialias:true, alpha:true });
-        this.renderer.setSize(W,H);
+        this.renderer.setSize(W, H);
         this.container.appendChild(this.renderer.domElement);
 
         const light = new THREE.DirectionalLight(0xffffff,1);
         light.position.set(50,100,100);
         this.scene.add(light);
 
-        // 기지 A
+        // 기지 A 표시
         const base = new THREE.Mesh(
           new THREE.SphereGeometry(3,16,16),
           new THREE.MeshStandardMaterial({ color:0x0000ff })
@@ -122,15 +155,18 @@
 
         let tImpact=0, minErr=Infinity;
         const groundT = Math.sqrt(400/4.9);
-        for(let t=0; t<=groundT; t+=0.01) {
+        for (let t=0; t<=groundT; t+=0.01) {
           const err = PH1(t).distanceTo(SA) - vI*t;
-          if (Math.abs(err)<minErr) { minErr = Math.abs(err); tImpact = t; }
+          if (Math.abs(err) < minErr) {
+            minErr = Math.abs(err);
+            tImpact = t;
+          }
         }
-
         const Pimp = PH1(tImpact);
         const u    = Pimp.clone().sub(SA).normalize();
 
-        this.enemyPoints = []; this.intPoints = [];
+        this.enemyPoints = [];
+        this.intPoints   = [];
         const steps = 200;
         for (let i=0; i<=steps; i++) {
           const tt = tImpact * i/steps;
@@ -154,7 +190,8 @@
         this.intDot   = new THREE.Mesh(dotGeom, new THREE.MeshStandardMaterial({ color:0x0000ff }));
         this.scene.add(this.enemyDot, this.intDot);
 
-        this.frame = 0; this.maxFrame = steps;
+        this.frame    = 0;
+        this.maxFrame = steps;
       }
 
       animate() {
@@ -169,23 +206,32 @@
       }
     }
 
-    // 3) 초기화
+    // --- 3) 초기화 및 이벤트 바인딩 ---
     document.addEventListener('DOMContentLoaded', () => {
-      setTimeout(() => document.getElementById('loading').style.display = 'none', 2000);
+      // 로딩 메시지 숨기기
+      setTimeout(() => {
+        document.getElementById('loading').style.display = 'none';
+      }, 2000);
+
+      // 인스턴스 생성
       const map3d      = new JeonjuUniversity3D('terrain');
       const missileSim = new MissileSimulation('missile-sim');
 
-      // 컨트롤 연결
-      document.getElementById('rotation-speed').addEventListener('input', e => {
-        map3d.rotationSpeed = parseFloat(e.target.value);
-      });
-      document.getElementById('zoom-level').addEventListener('input', e => {
-        map3d.camera.zoom = parseFloat(e.target.value);
-        map3d.camera.updateProjectionMatrix();
-      });
-      document.getElementById('tilt-angle').addEventListener('input', e => {
-        map3d.camera.rotation.x = parseInt(e.target.value) * Math.PI/180;
-      });
+      // 슬라이더 이벤트
+      document.getElementById('rotation-speed')
+        .addEventListener('input', e => {
+          map3d.rotationSpeed = parseFloat(e.target.value);
+        });
+      document.getElementById('zoom-level')
+        .addEventListener('input', e => {
+          map3d.zoomLevel = parseFloat(e.target.value);
+          map3d.updateCameraPosition();
+        });
+      document.getElementById('tilt-angle')
+        .addEventListener('input', e => {
+          map3d.tiltAngle = parseInt(e.target.value) * Math.PI/180;
+          map3d.updateCameraPosition();
+        });
     });
   </script>
 </body>
